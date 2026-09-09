@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { corePacks, createRegistry, registry } from '../src/content/registry';
+import {
+  legacyPacks as corePacks,
+  createRegistry,
+  legacyRegistry as registry,
+} from '../src/content/registry';
 import { testAlternatePack } from '../src/content/packs/test-alternate-pack';
 import {
   automaticChoices,
@@ -136,7 +140,7 @@ describe('自动人生策略', () => {
     const result = stepAutomatically(choice, registry);
     for (const game of [choice, result]) {
       const restored = deserialize(serialize(game), registry).game;
-      expect(restored.schemaVersion).toBe(1);
+      expect(restored.schemaVersion).toBe(2);
       expect(restored).not.toHaveProperty('playing');
       expect(finish(restored)).toEqual(finish(game));
     }

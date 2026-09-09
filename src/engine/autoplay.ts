@@ -3,7 +3,7 @@ import { matches } from './conditions';
 import { calculateChoiceFit } from './personality';
 import { outcomeWeights } from './probability';
 import { random, weightedIndex } from './rng';
-import { advance, choose, narrativeText } from './runtime';
+import { advance, choose, currentText, availableChoices } from './runtime';
 
 export const AUTOPLAY_POLICY = 'autoplay-v1';
 export type PlaybackSpeed = 1 | 2 | 4;
@@ -15,7 +15,7 @@ export function automaticChoices(game: Game, registry: Registry) {
   if (!event) throw new Error('自动播放找不到当前场景。');
   const state = game.state;
   return (
-    event.choices
+    availableChoices(game, registry)
       .filter((choice) => matches(choice.requirements, state))
       // 条件可能让某个选项的所有结果都失效，此时不将它加入自动候选。
       .filter((choice) =>
@@ -87,7 +87,7 @@ export function selectAutomaticChoice(
 /** 与手动操作共用唯一的 choose / advance 入口，保留全部条件和概率规则。 */
 export function stepAutomatically(game: Game, registry: Registry): Game {
   if (game.phase === 'ending') return game;
-  if (game.phase === 'result') return advance(game, registry);
+  if (game.phase !== 'choice') return advance(game, registry);
   return choose(game, registry, selectAutomaticChoice(game, registry)!.id);
 }
 
@@ -99,17 +99,11 @@ export function readingDelay(
   if (game.phase === 'ending') return 0;
   const event = registry.events.find((e) => e.id === game.currentEventId);
   if (!event) throw new Error('无法计算缺失场景的阅读时间。');
-  const last = game.state.history.at(-1);
   const text =
-    game.phase === 'choice'
-      ? narrativeText(event, game.state) +
-        event.choices
-          .filter((c) => matches(c.requirements, game.state))
-          .map((c) => c.text + c.hint)
-          .join('')
-      : (event.choices
-          .find((c) => c.id === last?.choiceId)
-          ?.outcomes.find((o) => o.id === last?.outcomeId)?.narrative ?? '');
+    currentText(game, registry) +
+    availableChoices(game, registry)
+      .map((c) => c.text + c.hint)
+      .join('');
   // 按中文阅读量留时间；即使 4 倍速也至少展示 2 秒，不连续闪过结果页。
   return Math.max(
     2000,

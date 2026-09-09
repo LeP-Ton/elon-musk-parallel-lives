@@ -40,7 +40,25 @@ export function validateContent(packs: ContentPack[]): string[] {
     const required = new Set<string>();
     const absent = new Set<string>();
     for (const c of conditions) {
-      if ('field' in c) {
+      if ('relationship' in c) {
+        if (!r.characters.some((p) => p.id === c.relationship))
+          errors.push(`${owner} 不存在的人物关系 ${c.relationship}`);
+        if (
+          (c.gte ?? 0) > (c.lte ?? 100) ||
+          (c.gte ?? 0) < 0 ||
+          (c.lte ?? 100) > 100
+        )
+          errors.push(`${owner} 关系条件永远不可满足`);
+      } else if ('promise' in c) {
+        if (
+          !r.events.some((e) =>
+            e.choices.some((ch) =>
+              ch.outcomes.some((o) => c.promise in (o.promises ?? {})),
+            ),
+          )
+        )
+          errors.push(`${owner} 不存在的承诺 ${c.promise}`);
+      } else if ('field' in c) {
         const bounds = intervals.get(c.field) ?? [
           c.field === 'year' ? 1971 : 0,
           ['wealth', 'income', 'year', 'age'].includes(c.field)
@@ -95,6 +113,107 @@ export function validateContent(packs: ContentPack[]): string[] {
       errors.push(`${owner} 年份与年龄永远不可同时满足`);
   };
   for (const e of r.events) {
+    const script = e.scene.script;
+    if (script) {
+      duplicate(
+        script.nodes.map((n) => n.id),
+        `${e.id}/Node`,
+      );
+      const edges = new Map<string, string[]>();
+      for (const n of script.nodes) {
+        let next: string[] = [];
+        if ('text' in n && !n.text.trim())
+          errors.push(`${e.id}/${n.id} 缺少正文`);
+        if ('cast' in n) {
+          if ((n.cast?.length ?? 0) > 2)
+            errors.push(`${e.id}/${n.id} 超过两名角色`);
+          for (const portrait of n.cast ?? []) {
+            const c = r.characters.find((c) => c.id === portrait.character);
+            if (!c || !c.expressions.includes(portrait.expression))
+              errors.push(
+                `${e.id}/${n.id} 人物或表情不存在：${portrait.character}/${portrait.expression}`,
+              );
+            if (c && (e.scene.year < c.era[0] || e.scene.year > c.era[1]))
+              errors.push(`${e.id}/${n.id} 人物年代不符：${c.id}`);
+            asset(
+              `${portrait.character}-${portrait.expression}`,
+              'character',
+              e.id,
+            );
+          }
+        }
+        if (
+          'speaker' in n &&
+          n.speaker &&
+          (!r.characters.some((c) => c.id === n.speaker) ||
+            !n.cast?.some((c) => c.character === n.speaker))
+        )
+          errors.push(`${e.id}/${n.id} 说话者不在舞台`);
+        if (n.type === 'branch') {
+          if (!n.fallback) errors.push(`${e.id}/${n.id} 条件分支缺少出口`);
+          n.branches.forEach((b) => checkConditions(b.when, e.id));
+          next = [...n.branches.map((b) => b.next), n.fallback];
+        } else if (n.type === 'choice') {
+          const choices = e.choices.filter((c) => n.choices.includes(c.id));
+          if (!choices.length || choices.length !== n.choices.length)
+            errors.push(`${e.id}/${n.id} 选择引用缺失`);
+          if (!choices.some((c) => !c.requirements?.length))
+            errors.push(`${e.id}/${n.id} 缺少无条件可用选择`);
+          next = choices.flatMap((c) =>
+            c.outcomes.map((o) => o.nextNodeId ?? ''),
+          );
+          for (const c of choices)
+            for (const o of c.outcomes) {
+              if (o.year !== undefined || o.nextEventId)
+                errors.push(`${e.id} 普通选择不能跳年份或场景`);
+              for (const id of Object.keys(o.relationships ?? {}))
+                if (!r.characters.some((c) => c.id === id))
+                  errors.push(`${e.id} 关系效果人物不存在：${id}`);
+              if (o.expression && n.cast?.length) {
+                const character = r.characters.find(
+                  (c) => c.id === n.cast!.at(-1)!.character,
+                );
+                if (!character?.expressions.includes(o.expression))
+                  errors.push(`${e.id} 结果表情不存在`);
+              }
+            }
+        } else if (n.type === 'end') {
+          if (!n.nextEventId && !n.endingId)
+            errors.push(`${e.id} 场景缺少默认出口`);
+          for (const id of [
+            n.nextEventId,
+            ...(n.routes ?? []).map((r) => r.next),
+          ].filter(Boolean)) {
+            const target = r.events.find((e) => e.id === id);
+            if (!target) errors.push(`${e.id} 场景出口不存在：${id}`);
+            else if (target.scene.year < e.scene.year)
+              errors.push(`${e.id} 场景年份倒退：${id}`);
+          }
+          n.routes?.forEach((route) => checkConditions(route.when, e.id));
+          if (n.endingId && !r.endings.some((end) => end.id === n.endingId))
+            errors.push(`${e.id} 结局不存在`);
+        } else next = [n.next];
+        for (const id of next)
+          if (!script.nodes.some((n) => n.id === id))
+            errors.push(`${e.id}/${n.id} 节点断链：${id}`);
+        edges.set(n.id, next);
+      }
+      const visited = new Set<string>();
+      const visit = (id: string, stack: Set<string>) => {
+        if (stack.has(id)) {
+          errors.push(`${e.id} 节点存在循环：${id}`);
+          return;
+        }
+        if (visited.has(id)) return;
+        visited.add(id);
+        for (const next of edges.get(id) ?? [])
+          visit(next, new Set([...stack, id]));
+      };
+      if (!edges.has(script.entry)) errors.push(`${e.id} 入口不存在`);
+      visit(script.entry, new Set());
+      for (const n of script.nodes)
+        if (!visited.has(n.id)) errors.push(`${e.id}/${n.id} 节点不可达`);
+    }
     checkConditions(e.conditions, e.id);
     if (!e.scene.openingNarrative.trim()) errors.push(`${e.id} 缺少场景正文`);
     if (e.truthType !== 'ALTERNATE' && !e.sourceRefs?.length)
@@ -187,6 +306,16 @@ export function validateContent(packs: ContentPack[]): string[] {
                   reachableTags.add(tag);
                   changed = true;
                 }
+      // 场景收束会添加对应的结局标记；它不是普通选择的时间跳跃效果。
+      for (const n of e.scene.script?.nodes ?? [])
+        if (
+          n.type === 'end' &&
+          n.endingId &&
+          !reachableTags.has(`ending-${n.endingId}`)
+        ) {
+          reachableTags.add(`ending-${n.endingId}`);
+          changed = true;
+        }
     }
   }
   for (const e of r.events)
@@ -195,5 +324,30 @@ export function validateContent(packs: ContentPack[]): string[] {
   for (const e of r.endings)
     if (!possible(e.conditions))
       errors.push(`Ending ${e.id} 明显不可达：标签或历史没有可达生产者`);
+  const scripted = r.events.filter((e) => e.scene.script);
+  if (scripted.length) {
+    const reached = new Set<string>();
+    const visitScene = (id: string, stack: Set<string>) => {
+      if (stack.has(id)) {
+        errors.push(`场景存在循环：${id}`);
+        return;
+      }
+      if (reached.has(id)) return;
+      reached.add(id);
+      for (const n of r.events.find((e) => e.id === id)?.scene.script?.nodes ??
+        [])
+        if (n.type === 'end')
+          for (const target of [
+            n.nextEventId,
+            ...(n.routes?.map((r) => r.next) ?? []),
+          ].filter((x): x is string => !!x))
+            visitScene(target, new Set([...stack, id]));
+    };
+    scripted
+      .filter((e) => !e.conditions.some((c) => 'history' in c))
+      .forEach((e) => visitScene(e.id, new Set()));
+    for (const e of scripted)
+      if (!reached.has(e.id)) errors.push(`${e.id} 场景图不可达`);
+  }
   return [...new Set(errors)];
 }

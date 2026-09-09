@@ -1,6 +1,11 @@
 import type { Game, Registry } from './types';
-import { advance, choose, narrativeText } from '../engine/runtime';
-import { matches } from '../engine/conditions';
+import {
+  advance,
+  choose,
+  currentText,
+  availableChoices,
+  currentNode,
+} from '../engine/runtime';
 type Context = {
   registerTool: (
     tool: {
@@ -24,26 +29,18 @@ export function registerGameTools(
   const read = () => {
     const game = getGame();
     const r = getRegistry();
-    const e = r.events.find((e) => e.id === game.currentEventId);
-    const h = game.state.history.at(-1);
     return {
       phase: game.phase,
       year: game.state.year,
       eventId: game.currentEventId,
       ending: r.endings.find((e) => e.id === game.endingId)?.narrative,
-      story: e
-        ? game.phase === 'result'
-          ? e.choices
-              .find((c) => c.id === h?.choiceId)
-              ?.outcomes.find((o) => o.id === h?.outcomeId)?.narrative
-          : narrativeText(e, game.state)
-        : undefined,
-      choices:
-        game.phase === 'choice'
-          ? e?.choices
-              .filter((c) => matches(c.requirements, game.state))
-              .map((c) => ({ id: c.id, text: c.text }))
-          : [],
+      nodeId: game.nodeId,
+      node: currentNode(game, r)?.type,
+      story: currentText(game, r),
+      choices: availableChoices(game, r).map((c) => ({
+        id: c.id,
+        text: c.text,
+      })),
     };
   };
   const tools = [
@@ -83,7 +80,8 @@ export function registerGameTools(
     },
     {
       name: 'continue_life_story',
-      description: '阅读结果之后推进到下一个场景或阶段结局。',
+      description:
+        '推进一段对白、阅读选择结果或进入下一幕；不能跳过尚未作出的选择。',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -91,7 +89,8 @@ export function registerGameTools(
       },
       annotations: { readOnlyHint: false },
       execute: () => {
-        if (getGame().phase !== 'result') throw Error('只能从结果页继续');
+        if (!['reading', 'result'].includes(getGame().phase))
+          throw Error('请先作出选择，或人生已经结束');
         commit(advance(getGame(), getRegistry()));
         return read();
       },

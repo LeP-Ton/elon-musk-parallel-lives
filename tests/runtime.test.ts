@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { corePacks, createRegistry, registry } from '../src/content/registry';
+// 旧内容保留为引擎回归夹具；新版完整路线另见 novel.test.ts。
+import {
+  legacyPacks as corePacks,
+  createRegistry,
+  legacyRegistry as registry,
+} from '../src/content/registry';
 import { testAlternatePack } from '../src/content/packs/test-alternate-pack';
 import {
   advance,
@@ -309,7 +314,7 @@ describe('存档与校验器', () => {
         serialize(newGame(registry)),
         createRegistry([...corePacks, testAlternatePack]),
       ).game.schemaVersion,
-    ).toBe(1));
+    ).toBe(2));
   it('损坏、不兼容和篡改存档被拒绝', () => {
     expect(() => deserialize('oops', registry)).toThrow();
     for (const mutate of [

@@ -1,0 +1,142 @@
+import type { Asset, Character, Expression } from '../../game/types';
+const full: Expression[] = [
+  'neutral',
+  'thoughtful',
+  'happy',
+  'worried',
+  'angry',
+  'sad',
+];
+const supporting: Expression[] = ['neutral', 'happy', 'worried', 'angry'];
+export const characters: Character[] = [
+  {
+    id: 'elon-child',
+    name: '埃隆',
+    identity: '12～17岁 · 主角的戏剧化少年形象',
+    fictional: false,
+    era: [1983, 1988],
+    expressions: full,
+    portrait: 'elon-child',
+  },
+  {
+    id: 'elon-youth',
+    name: '埃隆',
+    identity: '18～23岁 · 主角的戏剧化青年形象',
+    fictional: false,
+    era: [1989, 1994],
+    expressions: full,
+    portrait: 'elon-youth',
+  },
+  {
+    id: 'elon-adult',
+    name: '埃隆',
+    identity: '24～28岁 · 主角的戏剧化成年形象',
+    fictional: false,
+    era: [1995, 1999],
+    expressions: full,
+    portrait: 'elon-adult',
+  },
+  {
+    id: 'maye',
+    name: '梅耶',
+    identity: '母亲 · 真实人物，对白为原创戏剧化',
+    fictional: false,
+    era: [1983, 1988],
+    expressions: supporting,
+    portrait: 'maye',
+  },
+  {
+    id: 'kimbal',
+    name: '金巴尔',
+    identity: '弟弟 · 真实人物，合作细节与对白为戏剧化',
+    fictional: false,
+    era: [1995, 1999],
+    expressions: supporting,
+    portrait: 'kimbal',
+  },
+  {
+    id: 'claire',
+    name: '克莱尔',
+    identity: '原创角色 · 大学同学，后来从事社区研究',
+    fictional: true,
+    era: [1990, 1999],
+    expressions: supporting,
+    portrait: 'claire',
+  },
+  {
+    id: 'dan',
+    name: '丹',
+    identity: '原创角色 · 软件工程师、潜在合作者',
+    fictional: true,
+    era: [1995, 1999],
+    expressions: supporting,
+    portrait: 'dan',
+  },
+  {
+    id: 'recruiter',
+    name: '罗伯特',
+    identity: '原创角色 · 招聘者，不对应真实公司职员',
+    fictional: true,
+    era: [1995, 1999],
+    expressions: supporting,
+    portrait: 'recruiter',
+  },
+  {
+    id: 'investor',
+    name: '伊芙琳',
+    identity: '原创角色 · 投资人，不对应真实投资者',
+    fictional: true,
+    era: [1995, 1999],
+    expressions: supporting,
+    portrait: 'investor',
+  },
+  {
+    id: 'publisher',
+    name: '马丁',
+    identity: '原创角色 · 游戏发行人',
+    fictional: true,
+    era: [1995, 1999],
+    expressions: supporting,
+    portrait: 'publisher',
+  },
+];
+export const backgrounds: Asset[] = [
+  ['bedroom', '少年卧室', '1983—1988'],
+  ['airport', '机场大厅', '1989—1995'],
+  ['campus', '大学图书馆', '1990—1999'],
+  ['dorm', '学生宿舍', '1990—1995'],
+  ['recruitment', '招聘大厅', '1995—1999'],
+  ['office', '创业办公室', '1995—1999'],
+  ['meeting', '会议室', '1995—1999'],
+  ['apartment', '城市公寓', '1995—1999'],
+].map(([id, , era]) => ({
+  id: `vn-${id}`,
+  type: 'background',
+  era,
+  path:
+    id === 'campus' || id === 'office'
+      ? `/assets/${id}.png`
+      : `/assets/novel/backgrounds/${id}.png`,
+}));
+export const portraits: Asset[] = characters.flatMap((c) =>
+  c.expressions.map((expression) => ({
+    id: `${c.id}-${expression}`,
+    type: 'character' as const,
+    path: `/assets/novel/characters/${c.portrait}-${expression}.png`,
+    era: c.era.join('—'),
+  })),
+);
+export const promiseNames: Record<string, string> = {
+  dinner: '关机后一起吃饭',
+  letter: '抵达后写一封真实的信',
+  credit: '让合作者拥有署名',
+  demo: '只展示能运行的版本',
+  rest: '不把通宵强加给同伴',
+  privacy: '不出售用户的私人资料',
+  report: '让数字可以复核',
+  handover: '离开前完成交接',
+  visit: '为朋友留出见面的时间',
+  license: '为作品争取合理授权',
+  research: '公开失败的实验记录',
+  salary: '优先兑现团队的工资',
+};

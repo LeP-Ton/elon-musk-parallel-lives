@@ -1,7 +1,17 @@
 import type { Game, Registry } from './types';
-import { initialState } from '../engine/runtime';
+import { initialState, newGame, choose, advance } from '../engine/runtime';
 export type SaveSlot = { savedAt: string; game: Game };
-export const SAVE_PREFIX = 'parallel-lives:v1:';
+export const SAVE_PREFIX = 'parallel-lives:v2:';
+export const LEGACY_SAVE_PREFIX = 'parallel-lives:v1:';
+/** 旧档按原始字节导出，不解析、不迁移、更不会覆盖旧键。 */
+export function legacyBackups(
+  storage: Storage,
+): { slot: number; raw: string }[] {
+  return [0, 1, 2, 3].flatMap((slot) => {
+    const raw = storage.getItem(LEGACY_SAVE_PREFIX + slot);
+    return raw === null ? [] : [{ slot, raw }];
+  });
+}
 export function serialize(game: Game): string {
   return JSON.stringify({ savedAt: new Date().toISOString(), game });
 }
@@ -20,16 +30,74 @@ export function deserialize(raw: string, registry: Registry): SaveSlot {
   if (!parsed || typeof parsed !== 'object') return fail();
   const slot = parsed as SaveSlot;
   const game = slot.game;
+  if ((game?.schemaVersion as number) === 1)
+    throw Error('这是旧版人生存档，请保留备份；视觉小说版需要开启新人生。');
   if (
     !game ||
-    game.schemaVersion !== 1 ||
+    game.schemaVersion !== 2 ||
     !game.state ||
-    !['choice', 'result', 'ending'].includes(game.phase) ||
+    !['reading', 'choice', 'result', 'ending'].includes(game.phase) ||
     typeof slot.savedAt !== 'string' ||
     !Number.isFinite(Date.parse(slot.savedAt))
   )
     return fail();
   const s = game.state;
+  if (
+    !s.relationships ||
+    typeof s.relationships !== 'object' ||
+    Array.isArray(s.relationships) ||
+    !s.promises ||
+    typeof s.promises !== 'object' ||
+    Array.isArray(s.promises)
+  )
+    return fail();
+  for (const [id, trust] of Object.entries(s.relationships))
+    if (
+      !registry.characters.some((c) => c.id === id) ||
+      !Number.isFinite(trust) ||
+      trust < 0 ||
+      trust > 100
+    )
+      return fail();
+  const knownPromises = new Set(
+    registry.events.flatMap((e) =>
+      e.choices.flatMap((c) =>
+        c.outcomes.flatMap((o) => Object.keys(o.promises ?? {})),
+      ),
+    ),
+  );
+  for (const [id, status] of Object.entries(s.promises))
+    if (
+      !knownPromises.has(id) ||
+      !['pending', 'kept', 'broken'].includes(status)
+    )
+      return fail();
+  if (
+    !Array.isArray(game.visitedScenes) ||
+    game.visitedScenes.length > 1000 ||
+    game.visitedScenes.some(
+      (id) => !registry.events.some((e) => e.id === id),
+    ) ||
+    !Array.isArray(game.transcript) ||
+    game.transcript.length > 10000
+  )
+    return fail();
+  for (const line of game.transcript) {
+    if (!line || typeof line !== 'object') return fail();
+    const e = registry.events.find((e) => e.id === line.eventId);
+    const n = e?.scene.script?.nodes.find((n) => n.id === line.nodeId);
+    if (!n || !['narration', 'thought', 'dialogue', 'choice'].includes(n.type))
+      return fail();
+    if (
+      n.type === 'choice' &&
+      (!line.choiceId ||
+        !n.choices.includes(line.choiceId) ||
+        !e?.choices
+          .find((c) => c.id === line.choiceId)
+          ?.outcomes.some((o) => o.id === line.outcomeId))
+    )
+      return fail();
+  }
   for (const key of [
     'technical',
     'business',
@@ -135,11 +203,86 @@ export function deserialize(raw: string, registry: Registry): SaveSlot {
     s.history.at(-1)?.eventId !== game.currentEventId
   )
     return fail();
+  const current = registry.events.find((e) => e.id === game.currentEventId);
+  if (current?.scene.script) {
+    const node = current.scene.script.nodes.find((n) => n.id === game.nodeId);
+    if (
+      !node ||
+      node.type === 'branch' ||
+      game.visitedScenes.at(-1) !== current.id
+    )
+      return fail();
+    if (
+      (game.phase === 'choice' || game.phase === 'result') !==
+      (node.type === 'choice')
+    )
+      return fail();
+    const last = s.history.at(-1);
+    if (
+      game.phase === 'result' &&
+      (last?.nodeId !== node.id ||
+        node.type !== 'choice' ||
+        !node.choices.includes(last.choiceId))
+    )
+      return fail();
+    // 已结算的选择不能伪装为待选节点，防止篡改游标重复结算。
+    if (
+      game.phase === 'choice' &&
+      s.history.some((h) => h.eventId === current.id && h.nodeId === node.id)
+    )
+      return fail();
+  }
   if (
     game.pendingEventId &&
     !registry.events.some((e) => e.id === game.pendingEventId)
   )
     return fail();
+  if (game.contentVersions['early-visual-novel']) {
+    // 用种子与已记录选择重放，验证游标、关系、承诺及日志属于同一次真实可达人生。
+    // 仅在读档时运行；日常逐句保存不做重放，避免影响阅读响应。
+    let replay = newGame(registry, s.seed);
+    let found = false;
+    for (let step = 0; step < 5000; step++) {
+      if (
+        replay.currentEventId === game.currentEventId &&
+        replay.nodeId === game.nodeId &&
+        replay.phase === game.phase &&
+        replay.state.history.length === s.history.length &&
+        replay.transcript.length === game.transcript.length
+      ) {
+        found = true;
+        break;
+      }
+      if (replay.phase === 'ending') break;
+      if (replay.phase === 'choice') {
+        const recorded = s.history[replay.state.history.length];
+        if (
+          !recorded ||
+          recorded.eventId !== replay.currentEventId ||
+          recorded.nodeId !== replay.nodeId
+        )
+          return fail();
+        replay = choose(replay, registry, recorded.choiceId);
+      } else replay = advance(replay, registry);
+    }
+    const canonical = (value: unknown): string =>
+      JSON.stringify(value, (_key, child) =>
+        child && typeof child === 'object' && !Array.isArray(child)
+          ? Object.fromEntries(
+              Object.entries(child).sort(([a], [b]) => a.localeCompare(b)),
+            )
+          : child,
+      );
+    if (
+      !found ||
+      canonical(replay.state) !== canonical(s) ||
+      canonical(replay.attempts) !== canonical(game.attempts) ||
+      canonical(replay.transcript) !== canonical(game.transcript) ||
+      canonical(replay.visitedScenes) !== canonical(game.visitedScenes) ||
+      replay.endingId !== game.endingId
+    )
+      return fail();
+  }
   return slot;
 }
 export function saveSlot(storage: Storage, slot: number, game: Game): void {

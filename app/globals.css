@@ -1,6 +1,258 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* 视觉小说舞台：背景、人物和正文各占自己的层，窄屏不以遮字换取立绘面积。 */
+.vn-stage {
+  border: 1px solid #4a5148;
+  background: #151d1c;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.vn-visual {
+  height: clamp(260px, 43vh, 480px);
+  position: relative;
+  overflow: hidden;
+  background: #182321;
+}
+.vn-background,
+.vn-vignette {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.vn-vignette {
+  background: linear-gradient(180deg, #07171965, transparent 35%, #0e1b1cb0);
+}
+.vn-scene-meta {
+  position: absolute;
+  z-index: 2;
+  top: 22px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #ead9b6;
+  font-size: 0.875rem;
+  letter-spacing: 0.07em;
+  text-shadow: 0 1px 6px #000;
+}
+.vn-cast {
+  position: absolute;
+  inset: 24px 8% -6% 8%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+}
+.vn-portrait {
+  width: 46%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  transition:
+    filter 0.25s,
+    opacity 0.25s;
+  filter: drop-shadow(0 4px 15px #061b2280);
+}
+.vn-portrait.listening {
+  filter: brightness(0.72) saturate(0.8);
+}
+.vn-location {
+  position: absolute;
+  left: 24px;
+  bottom: 16px;
+  color: #e9ddc4;
+  font-size: 0.875rem;
+  text-shadow: 0 1px 6px #000;
+}
+.vn-dialogue {
+  position: relative;
+  padding: 26px 34px 24px;
+  border-top: 1px solid #a88e5a66;
+  background: linear-gradient(135deg, #202a27, #17211f);
+}
+.vn-dialogue-heading {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.vn-speaker {
+  color: #edc68c;
+  letter-spacing: 0.1em;
+  font-size: 1.125rem;
+}
+.vn-identity {
+  color: #a6b7ad;
+  font-size: 0.75rem;
+}
+.vn-dialogue h1 {
+  font-size: 0.875rem;
+  font-weight: normal;
+  margin: 8px 0 18px;
+  color: #acb6a8;
+}
+.vn-copy {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: inherit;
+  border: 0;
+  background: none;
+  line-height: 1.95;
+  color: #efe8d8;
+  min-height: 5.9em;
+  cursor: pointer;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+}
+.vn-copy:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.vn-inspector pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 0.875rem;
+  margin: 16px 0;
+}
+.vn-expression-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+.vn-expression-gallery figure {
+  margin: 0;
+  background: #45514b;
+  border: 1px solid #6d7a6c;
+  text-align: center;
+}
+.vn-expression-gallery img {
+  width: 100%;
+  aspect-ratio: 2/3;
+  object-fit: contain;
+}
+.vn-expression-gallery figcaption {
+  padding: 6px;
+  font-size: 0.875rem;
+}
+@media (max-width: 640px) {
+  .vn-expression-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.vn-copy p {
+  margin: 0;
+}
+.vn-next {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 0 auto;
+  color: #e1c58c;
+  font-size: 0.9375rem;
+  padding: 8px 12px;
+  border: 1px solid #8c805d66;
+}
+.vn-next:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.vn-choices {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+.vn-choice {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: 18px;
+  padding: 17px 20px;
+  background: #26332e;
+  border: 1px solid #65705b;
+  color: #eee8d9;
+  min-width: 0;
+}
+.vn-choice:hover {
+  border-color: #dbc08b;
+  background: #334136;
+}
+.vn-choice-number {
+  color: #c1a77b;
+  font-size: 0.875rem;
+}
+.vn-choice > span:nth-child(2) {
+  flex: 1;
+}
+.vn-choice strong {
+  display: block;
+  font-size: 1em;
+  font-weight: 500;
+}
+.vn-choice small {
+  display: block;
+  margin-top: 5px;
+  color: #b5c1b2;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.vn-log article,
+.vn-relation {
+  border-bottom: 1px solid #52604666;
+  padding: 15px 0;
+}
+.vn-log small,
+.vn-relation small {
+  display: block;
+  color: #b7c0a8;
+  font-size: 0.875rem;
+}
+.vn-log p {
+  line-height: 1.9;
+  white-space: pre-line;
+}
+.vn-reduced * {
+  transition: none !important;
+  animation: none !important;
+}
+@media (max-width: 640px) {
+  .vn-visual {
+    height: 270px;
+  }
+  .vn-cast {
+    inset: 22px 0 -10%;
+  }
+  .vn-portrait.listening {
+    display: none;
+  }
+  .vn-portrait.speaking {
+    width: 75%;
+  }
+  .vn-dialogue {
+    padding: 22px 18px;
+  }
+  .vn-dialogue-heading {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .vn-choice {
+    gap: 10px;
+    padding: 14px 12px;
+  }
+  .vn-scene-meta {
+    left: 16px;
+    right: 16px;
+    font-size: 0.75rem;
+  }
+}
+
 .truth-label {
   font-size: 12px;
   color: #a3af96;

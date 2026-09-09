@@ -12,7 +12,6 @@ import {
   GitBranch,
   Fingerprint,
   Bookmark,
-  MapPin,
   X,
   Library,
   RotateCcw,
@@ -41,26 +40,29 @@ import type { Game as GameState, Registry, Stat } from '../game/types';
 import {
   advance,
   choose,
-  narrativeText,
+  availableChoices,
   newGame,
   sceneTruth,
 } from '../engine/runtime';
-import { matches } from '../engine/conditions';
 import {
   deserialize,
   loadSlot,
   saveSlot,
   serialize,
+  legacyBackups,
   type SaveSlot,
 } from '../game/save';
 import { canonTimeline } from '../research/canonTimeline';
 import { registerGameTools, type GameModelContext } from '../game/webmcp';
 import { Inspector } from './Inspector';
-import { assetUrl } from '../game/assets';
 import { freshWorldSeed, type PlaybackSpeed } from '../engine/autoplay';
 import { useAutoplay } from './useAutoplay';
+import { NovelStage } from './NovelStage';
+import { NovelInspector } from './NovelInspector';
+import { promiseNames } from '../content/novel/characters';
 
 type Panel =
+  | 'log'
   | 'profile'
   | 'timeline'
   | 'save'
@@ -104,7 +106,12 @@ export default function Game() {
     null,
   ]);
   const [replaceSlot, setReplaceSlot] = useState<number | null>(null);
-  const [fontSize, setFontSize] = useState(17);
+  const [fontSize, setFontSize] = useState(18);
+  const [motion, setMotion] = useState(true);
+  const [oldBackups, setOldBackups] = useState<{ slot: number; raw: string }[]>(
+    [],
+  );
+  const lastScrolledScene = useRef<string | null>(null);
   const [dev, setDev] = useState(false);
   const [ready, setReady] = useState(false);
   const pristineRef = useRef(true);
@@ -154,8 +161,11 @@ export default function Game() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+  // 初始化与读取浏览器存储是外部系统同步，不能在SSR渲染时访问。
+  /* eslint-disable react/react-compiler */
   useEffect(() => {
     setDev(import.meta.env.DEV);
+    setMotion(!window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     try {
       setResume(loadSlot(localStorage, 0, registryRef.current));
     } catch (e) {
@@ -173,6 +183,11 @@ export default function Game() {
   }, []);
   useEffect(() => {
     if (panel !== 'save') return;
+    try {
+      setOldBackups(legacyBackups(localStorage));
+    } catch {
+      setNotice('旧档暂时无法读取，请检查浏览器存储权限。');
+    }
     setSlots(
       [0, 1, 2, 3].map((i) => {
         try {
@@ -183,40 +198,27 @@ export default function Game() {
       }),
     );
   }, [panel, registry, game]);
+  /* eslint-enable react/react-compiler */
   const last = game.state.history.at(-1);
   const event =
     registry.events.find(
       (e) => e.id === (game.currentEventId ?? last?.eventId),
     ) ?? registry.events[0];
-  const ending = registry.endings.find((e) => e.id === game.endingId);
-  const outcome =
-    last &&
-    event.choices
-      .find((c) => c.id === last.choiceId)
-      ?.outcomes.find((o) => o.id === last.outcomeId);
-  const text =
-    game.phase === 'ending'
-      ? (ending?.narrative ?? '')
-      : game.phase === 'result'
-        ? (outcome?.narrative ?? '')
-        : narrativeText(event, game.state);
-  const choices = event.choices.filter((c) =>
-    matches(c.requirements, game.state),
-  );
+  const choices = availableChoices(game, registry);
   const truth =
     game.phase === 'result'
       ? (last?.truthType ?? sceneTruth(event, game.state))
       : sceneTruth(event, game.state);
-  const displayYear =
-    game.phase === 'result' ? (last?.year ?? game.state.year) : game.state.year;
   function setPanel(next: Panel) {
     autoplay.pause();
     setPanelState(next);
   }
   function scrollToStory() {
+    if (lastScrolledScene.current === gameRef.current.currentEventId) return;
+    lastScrolledScene.current = gameRef.current.currentEventId;
     requestAnimationFrame(() =>
       document
-        .getElementById('story-title')
+        .querySelector('.vn-stage')
         ?.scrollIntoView({ behavior: 'instant', block: 'start' }),
     );
   }
@@ -257,22 +259,12 @@ export default function Game() {
         e.target.closest('input,textarea,select,button,a'))
     )
       return;
-    if (e.code === 'Space') {
-      e.preventDefault();
-      if (autoplay.playing) autoplay.pause();
-      else startAutoplay();
-      return;
-    }
     if (game.phase === 'choice' && /^[1-4]$/.test(e.key)) {
       const c = choices[Number(e.key) - 1];
       if (c) {
         e.preventDefault();
         turn(() => choose(gameRef.current, registryRef.current, c.id));
       }
-    }
-    if (game.phase === 'result' && e.key === 'Enter') {
-      e.preventDefault();
-      turn(() => advance(gameRef.current, registryRef.current));
     }
   });
   useEffect(() => {
@@ -303,6 +295,7 @@ export default function Game() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   const panelTitle = {
+    log: '已经说过的话',
     profile: '人生档案',
     timeline: '两条人生，同一个时代',
     save: '留住这一刻',
@@ -363,7 +356,7 @@ export default function Game() {
           <small>
             早期人生篇
             <br />
-            1971—1999
+            1983—1999
           </small>
         </aside>
         <section className="reading-stage">
@@ -381,271 +374,131 @@ export default function Game() {
               </button>
             </div>
           )}
-          <section className="autoplay-toolbar" aria-label="自动播放控制">
-            <div className="autoplay-controls">
-              <div className="autoplay-heading">
-                <span
-                  className={
-                    autoplay.playing ? 'live-dot is-playing' : 'live-dot'
-                  }
-                  aria-hidden
-                />
-                <strong>观众模式</strong>
-                <output id="autoplay-status">
-                  {game.phase === 'ending'
-                    ? '本轮已结束'
-                    : autoplay.playing
-                      ? '正在演化'
-                      : '等待播放'}
-                </output>
-              </div>
-              <div className="autoplay-actions">
-                <Button
-                  className="autoplay-toggle"
-                  onClick={() =>
-                    autoplay.playing ? autoplay.pause() : startAutoplay()
-                  }
-                  disabled={
-                    !ready ||
-                    Boolean(resume || error) ||
-                    game.phase === 'ending'
-                  }
-                  aria-pressed={autoplay.playing}
-                >
-                  {autoplay.playing ? <Pause /> : <Play />}
-                  {autoplay.playing ? '暂停' : '自动播放'}
-                </Button>
-                <label className="playback-speed" htmlFor="playback-speed">
-                  <span className="sr-only">播放速度</span>
-                  <NativeSelect
-                    id="playback-speed"
-                    value={autoplay.speed}
-                    onChange={(e) =>
-                      autoplay.changeSpeed(
-                        Number(e.target.value) as PlaybackSpeed,
-                      )
-                    }
-                  >
-                    <NativeSelectOption value={1}>1× 阅读</NativeSelectOption>
-                    <NativeSelectOption value={2}>2× 快进</NativeSelectOption>
-                    <NativeSelectOption value={4}>4× 速览</NativeSelectOption>
-                  </NativeSelect>
-                </label>
-                <Button
-                  variant="outline"
-                  onClick={prepareRandomLife}
-                  disabled={!ready}
-                >
-                  <Shuffle />
-                  随机开播
-                </Button>
-              </div>
-            </div>
-            <p className="autoplay-caption">
-              {resume ? (
-                '先继续上次故事，或用「随机开播」开启另一条人生。'
-              ) : game.phase === 'ending' ? (
-                '故事在此停留。随机开播可观看新人生；不同种子也可能走向相同结局。'
-              ) : autoplay.playing ? (
-                <>
-                  <span role="timer" aria-live="off">
-                    约 {Math.ceil(autoplay.remaining / 1000)} 秒后
-                    {game.phase === 'choice' ? '作出选择' : '翻页'}。
-                  </span>
-                  点击任一选项可立即接管。
-                </>
-              ) : (
-                '让人物倾向、现实条件与机遇推动故事。空格键播放 / 暂停。'
-              )}
-            </p>
-          </section>
-          <div className="scene-frame">
-            <img
-              key={event.scene.backgroundKey}
-              className="scene-image"
-              src={assetUrl(
-                registry.assets.find((a) => a.id === event.scene.backgroundKey)
-                  ?.path,
-              )}
-              alt={`${event.scene.location}，电影化年代插画，属于艺术重现`}
-            />
-            <div className="scene-shade" />
-            <div className="scene-topline">
-              <span>
-                第{' '}
-                {String(
-                  game.state.history.length + (game.phase === 'choice' ? 1 : 0),
-                ).padStart(2, '0')}{' '}
-                幕
-              </span>
-              <span>
-                {game.state.timelineDeviation > 0
-                  ? '◉ 另一条世界线'
-                  : '◉ 故事，从这里开始'}
-              </span>
-            </div>
-            <div className="scene-caption">
-              <span className="scene-year">{displayYear}</span>
-              <span>
-                <MapPin size={13} />
-                {event.scene.location}
-                <small>{event.scene.timeOfDay}</small>
-              </span>
-            </div>
-            <span className="frame-corner">年代场景 · 原创插画</span>
-          </div>
-          <article
-            className="story"
-            key={`${event.id}-${game.phase}-${game.state.history.length}`}
+          <details
+            className="autoplay-toolbar"
+            onToggle={(e) => {
+              if (!e.currentTarget.open) autoplay.pause();
+            }}
           >
-            <div className="story-eyebrow">
-              <span>
-                {game.phase === 'ending' ? '第一幕 · 人生落笔' : event.chapter}
-              </span>
-              <span className="fine-line" />
-              <button
-                className="truth-label"
-                onClick={() => setPanel('sources')}
-              >
-                {game.phase === 'result' ? '选择之后' : truthLabels[truth]}
+            <summary>观众模式 · 让故事自动演化</summary>
+            <section aria-label="自动播放控制">
+              <div className="autoplay-controls">
+                <div className="autoplay-heading">
+                  <span
+                    className={
+                      autoplay.playing ? 'live-dot is-playing' : 'live-dot'
+                    }
+                    aria-hidden
+                  />
+                  <strong>观众模式</strong>
+                  <output id="autoplay-status">
+                    {game.phase === 'ending'
+                      ? '本轮已结束'
+                      : autoplay.playing
+                        ? '正在演化'
+                        : '等待播放'}
+                  </output>
+                </div>
+                <div className="autoplay-actions">
+                  <Button
+                    className="autoplay-toggle"
+                    onClick={() =>
+                      autoplay.playing ? autoplay.pause() : startAutoplay()
+                    }
+                    disabled={
+                      !ready ||
+                      Boolean(resume || error) ||
+                      game.phase === 'ending'
+                    }
+                    aria-pressed={autoplay.playing}
+                  >
+                    {autoplay.playing ? <Pause /> : <Play />}
+                    {autoplay.playing ? '暂停' : '自动播放'}
+                  </Button>
+                  <label className="playback-speed" htmlFor="playback-speed">
+                    <span className="sr-only">播放速度</span>
+                    <NativeSelect
+                      id="playback-speed"
+                      value={autoplay.speed}
+                      onChange={(e) =>
+                        autoplay.changeSpeed(
+                          Number(e.target.value) as PlaybackSpeed,
+                        )
+                      }
+                    >
+                      <NativeSelectOption value={1}>1× 阅读</NativeSelectOption>
+                      <NativeSelectOption value={2}>2× 快进</NativeSelectOption>
+                      <NativeSelectOption value={4}>4× 速览</NativeSelectOption>
+                    </NativeSelect>
+                  </label>
+                  <Button
+                    variant="outline"
+                    onClick={prepareRandomLife}
+                    disabled={!ready}
+                  >
+                    <Shuffle />
+                    随机开播
+                  </Button>
+                </div>
+              </div>
+              <p className="autoplay-caption">
+                {resume ? (
+                  '先继续上次故事，或用「随机开播」开启另一条人生。'
+                ) : game.phase === 'ending' ? (
+                  '故事在此停留。随机开播可观看新人生；不同种子也可能走向相同结局。'
+                ) : autoplay.playing ? (
+                  <>
+                    <span role="timer" aria-live="off">
+                      约 {Math.ceil(autoplay.remaining / 1000)} 秒后
+                      {game.phase === 'choice' ? '作出选择' : '翻页'}。
+                    </span>
+                    点击任一选项可立即接管。
+                  </>
+                ) : (
+                  '让人物倾向、现实条件与机遇推动故事。手动游玩无需开启此模式。'
+                )}
+              </p>
+            </section>
+          </details>
+          <NovelStage
+            game={game}
+            registry={registry}
+            fontSize={fontSize}
+            motion={motion}
+            playing={autoplay.playing}
+            blocked={!ready || Boolean(panel || resume)}
+            planned={autoplay.plannedChoice}
+            onPause={autoplay.pause}
+            onAdvance={() =>
+              turn(() => advance(gameRef.current, registryRef.current))
+            }
+            onChoose={(id) =>
+              turn(() => choose(gameRef.current, registryRef.current, id))
+            }
+          />
+          {game.phase === 'ending' && (
+            <div className="ending-actions">
+              <button className="continue" onClick={() => setPanel('timeline')}>
+                回望这条人生
+              </button>
+              <button className="secondary-action" onClick={prepareRandomLife}>
+                开启另一段人生
               </button>
             </div>
-            <h1 id="story-title" tabIndex={-1}>
-              {game.phase === 'ending' ? ending?.title : event.title}
-            </h1>
-            {game.phase === 'ending' && (
-              <div className="ending-subtitle">{ending?.subtitle}</div>
-            )}
-            <div className="prose" style={{ fontSize }} aria-live="polite">
-              {text.split('\n\n').map((p, i) => (
-                <p key={i}>{p}</p>
-              ))}
-            </div>
-            {game.phase === 'result' && (
-              <p className="result-choice">
-                这一刻的选择：
-                {event.choices.find((c) => c.id === last?.choiceId)?.text}
-              </p>
-            )}
-            {game.phase === 'result' && (
-              <div className="effect-whispers">
-                {outcome?.effects
-                  ?.filter((e) =>
-                    [
-                      'technical',
-                      'business',
-                      'network',
-                      'energy',
-                      'stress',
-                      'reputation',
-                    ].includes(e.stat),
-                  )
-                  .slice(0, 3)
-                  .map((e) => (
-                    <span key={e.stat}>
-                      {statNames[e.stat]} {e.delta > 0 ? '↑' : '↓'}
-                    </span>
-                  ))}
-                {game.state.autonomyConflict >= 35 && (
-                  <span>想要自己决定的念头，正在变强。</span>
-                )}
-              </div>
-            )}
-            <div className="choices">
-              <div className="choice-label">
-                {game.phase === 'choice'
-                  ? '此刻，你会怎么做？'
-                  : game.phase === 'ending'
-                    ? '你走过的路，已经成为人生的一部分。'
-                    : '人生，正在继续。'}
-              </div>
-              {game.phase === 'choice' ? (
-                choices.map((c, i) => (
-                  <button
-                    key={c.id}
-                    className={`choice ${autoplay.plannedChoice?.id === c.id ? 'auto-planned' : ''}`}
-                    onClick={() =>
-                      turn(() =>
-                        choose(gameRef.current, registryRef.current, c.id),
-                      )
-                    }
-                  >
-                    <span className="choice-number">0{i + 1}</span>
-                    <span>
-                      <strong>{c.text}</strong>
-                      <small>{c.hint}</small>
-                      {autoplay.plannedChoice?.id === c.id && (
-                        <em className="auto-choice-note">
-                          人物即将作出的选择 · 可点击接管
-                        </em>
-                      )}
-                    </span>
-                    <ArrowRight size={18} />
-                  </button>
-                ))
-              ) : game.phase === 'result' ? (
-                <button
-                  className="continue"
-                  onClick={() =>
-                    turn(() => advance(gameRef.current, registryRef.current))
-                  }
-                >
-                  翻开下一页 <ArrowRight size={17} />
-                </button>
-              ) : (
-                <>
-                  <div className="ending-stats">
-                    <span>
-                      财富<strong>{money(game.state.wealth)}</strong>
-                    </span>
-                    <span>
-                      影响力<strong>{game.state.influence.toFixed(0)}</strong>
-                    </span>
-                    <span>
-                      历史偏离
-                      <strong>
-                        {game.state.timelineDeviation.toFixed(0)}%
-                      </strong>
-                    </span>
-                  </div>
-                  <div className="ending-actions">
-                    <button
-                      className="secondary-action"
-                      onClick={prepareRandomLife}
-                    >
-                      <Shuffle size={16} />
-                      再看一段随机人生
-                    </button>
-                    <button
-                      className="continue"
-                      onClick={() => setPanel('timeline')}
-                    >
-                      回望这条人生 <GitBranch size={16} />
-                    </button>
-                    <button
-                      className="secondary-action"
-                      onClick={() => setPanel('new')}
-                    >
-                      开启另一条世界线
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-          </article>
+          )}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
           <footer className="story-footer">
             <span>每一个选择，都留下回声。</span>
             <span>
               世界种子 <code>{game.state.seed}</code>
             </span>
-            <span className="save-status" role="status">
+            <output className="save-status">
               {notice && <Check size={12} />} {notice}
-            </span>
+            </output>
           </footer>
           <div className="utility-bar">
             <button onClick={() => setPanel('sources')}>
@@ -659,10 +512,14 @@ export default function Game() {
             <button
               aria-label="切换正文字号"
               onClick={() =>
-                setFontSize((s) => (s === 17 ? 20 : s === 20 ? 23 : 17))
+                setFontSize((s) => (s === 18 ? 24 : s === 24 ? 36 : 18))
               }
             >
               字 {fontSize}
+            </button>
+            <button onClick={() => setPanel('log')}>对白回看</button>
+            <button aria-pressed={!motion} onClick={() => setMotion((v) => !v)}>
+              {motion ? '关闭打字与动效' : '开启打字与动效'}
             </button>
             {dev && (
               <button onClick={() => setPanel('debug')}>
@@ -670,7 +527,7 @@ export default function Game() {
                 开发检查器
               </button>
             )}
-            <span>数字键选择 · Enter 继续 · 空格播放 / 暂停</span>
+            <span>数字键选择 · Enter / 空格继续</span>
           </div>
         </section>
         <aside className="right-margin" aria-hidden>
@@ -706,6 +563,34 @@ export default function Game() {
           <DialogDescription className="sr-only">
             查看和管理当前世界线，按 Escape 关闭后继续故事。
           </DialogDescription>
+          {panel === 'log' && (
+            <div className="vn-log">
+              {game.transcript.length === 0 && (
+                <p>读完的对白会留在这里。回看不会改变选择。</p>
+              )}
+              {game.transcript.map((line, i) => {
+                const e = registry.events.find((e) => e.id === line.eventId)!;
+                const node = e.scene.script?.nodes.find(
+                  (n) => n.id === line.nodeId,
+                );
+                const choice = e.choices.find((c) => c.id === line.choiceId);
+                const text = line.outcomeId
+                  ? choice?.outcomes.find((o) => o.id === line.outcomeId)
+                      ?.narrative
+                  : node && 'text' in node
+                    ? node.text
+                    : '';
+                return (
+                  <article key={i}>
+                    <small>
+                      {e.title} {choice && ' · ' + choice.text}
+                    </small>
+                    <p>{text}</p>
+                  </article>
+                );
+              })}
+            </div>
+          )}
           {panel === 'profile' && (
             <>
               <p className="panel-intro">
@@ -747,6 +632,37 @@ export default function Game() {
                   </div>
                 ))}
               </div>
+              <h3>你与他们</h3>
+              {registry.characters
+                .filter((c) => !c.id.startsWith('elon'))
+                .map((c) => (
+                  <article className="vn-relation" key={c.id}>
+                    <strong>{c.name}</strong>
+                    <small>{c.identity}</small>
+                    <p>
+                      {game.state.relationships[c.id] === undefined
+                        ? '尚未留下共同经历'
+                        : game.state.relationships[c.id] >= 60
+                          ? '愿意分享顾虑，也愿意给你新的机会'
+                          : game.state.relationships[c.id] < 45
+                            ? '有所保留，需要行动重建信任'
+                            : '正在了解彼此的边界'}
+                    </p>
+                  </article>
+                ))}
+              <h3>说出口的承诺</h3>
+              {Object.entries(game.state.promises).map(([id, status]) => (
+                <p key={id}>
+                  {promiseNames[id] ?? id} ·{' '}
+                  {
+                    {
+                      pending: '等待兑现',
+                      kept: '已经兑现',
+                      broken: '曾经失约',
+                    }[status]
+                  }
+                </p>
+              ))}
               <h3>思考方式</h3>
               <div className="trait-tags">
                 {['强第一性原理', '高度好奇', '高自主需求', '高风险接受度'].map(
@@ -891,8 +807,7 @@ export default function Game() {
                 </article>
               ))}
               <p className="muted">
-                当前切片覆盖早期人生。完整 1971—2002
-                内容及后续事业模块仍待扩展；本作未直接搬用传记正文。
+                本篇覆盖少年到1999年的历史节点与平行推演。全部对白原创，非历史原话；2000年后的事业不在本篇范围。
               </p>
             </>
           )}
@@ -902,6 +817,28 @@ export default function Game() {
                 存档保存在当前浏览器。清理浏览器数据会移除存档，可导出文件留存。
                 读取后默认暂停，可从当前页重新开启自动播放。
               </p>
+              <p className="muted">
+                新版独立保存。旧版进度不迁移、不删除，只提供原样备份。
+              </p>
+              {oldBackups.map((backup) => (
+                <button
+                  className="secondary-action"
+                  key={backup.slot}
+                  onClick={() => {
+                    const url = URL.createObjectURL(
+                      new Blob([backup.raw], { type: 'application/json' }),
+                    );
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `parallel-lives-v1-slot-${backup.slot}.json`;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  }}
+                >
+                  导出旧版
+                  {backup.slot === 0 ? '自动存档' : '存档 ' + backup.slot}
+                </button>
+              ))}
               {slots.map((slot, i) => (
                 <div className="save-slot" key={i}>
                   <div>
@@ -1052,14 +989,18 @@ export default function Game() {
               </div>
             </>
           )}
-          {panel === 'debug' && dev && (
-            <Inspector
-              game={game}
-              registry={registry}
-              commit={commit}
-              register={register}
-            />
-          )}
+          {panel === 'debug' &&
+            dev &&
+            (game.contentVersions['early-visual-novel'] ? (
+              <NovelInspector game={game} registry={registry} />
+            ) : (
+              <Inspector
+                game={game}
+                registry={registry}
+                commit={commit}
+                register={register}
+              />
+            ))}
           {error && panel && (
             <p className="error" role="alert">
               {error}

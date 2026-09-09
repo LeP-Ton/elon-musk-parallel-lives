@@ -1,6 +1,13 @@
 import type { Condition, LifeState } from '../game/types';
 export function conditionReason(c: Condition, state: LifeState): string | null {
-  if ('field' in c) {
+  if ('relationship' in c) {
+    const value = state.relationships[c.relationship] ?? 50;
+    if (value < (c.gte ?? 0) || value > (c.lte ?? 100))
+      return `关系尚未满足：${c.relationship}`;
+  } else if ('promise' in c) {
+    if (state.promises[c.promise] !== c.status)
+      return `承诺尚未${c.status}：${c.promise}`;
+  } else if ('field' in c) {
     const value = state[c.field];
     if (c.gte !== undefined && value < c.gte)
       return `${c.field} ${value} < ${c.gte}`;

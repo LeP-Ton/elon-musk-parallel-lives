@@ -22,6 +22,8 @@ export type Stat =
   | 'ambitionPressure'
   | 'unresolvedProblemPressure';
 export type Condition =
+  | { relationship: string; gte?: number; lte?: number }
+  | { promise: string; status: PromiseStatus }
   | { field: Stat | 'year' | 'age'; gte?: number; lte?: number }
   | { tag: string; absent?: boolean }
   | { history: string; absent?: boolean }
@@ -52,6 +54,59 @@ export type Outcome = {
   country?: string;
   nextEventId?: string;
   deviation?: number;
+  relationships?: Record<string, number>;
+  promises?: Record<string, PromiseStatus>;
+  nextNodeId?: string;
+  expression?: Expression;
+};
+export type PromiseStatus = 'pending' | 'kept' | 'broken';
+export type Expression =
+  | 'neutral'
+  | 'thoughtful'
+  | 'happy'
+  | 'worried'
+  | 'angry'
+  | 'sad';
+export type Portrait = { character: string; expression: Expression };
+/** 场内图只声明内容；分支解析和效果结算由引擎完成。 */
+export type ScriptNode =
+  | {
+      id: string;
+      type: 'narration' | 'dialogue' | 'thought';
+      text: string;
+      speaker?: string;
+      cast?: Portrait[];
+      next: string;
+    }
+  | {
+      id: string;
+      type: 'choice';
+      text: string;
+      choices: string[];
+      cast?: Portrait[];
+    }
+  | {
+      id: string;
+      type: 'branch';
+      branches: { when: Condition[]; next: string }[];
+      fallback: string;
+    }
+  | {
+      id: string;
+      type: 'end';
+      nextEventId?: string;
+      year?: number;
+      endingId?: string;
+      routes?: { when: Condition[]; next: string }[];
+    };
+export type Character = {
+  id: string;
+  name: string;
+  identity: string;
+  fictional: boolean;
+  era: [number, number];
+  expressions: Expression[];
+  portrait: string;
 };
 export type Choice = {
   id: string;
@@ -63,6 +118,9 @@ export type Choice = {
   outcomes: Outcome[];
 };
 export type NarrativeScene = {
+  country?: string;
+  city?: string;
+  script?: { entry: string; nodes: ScriptNode[] };
   location: string;
   year: number;
   timeOfDay: string;
@@ -114,6 +172,7 @@ export type Asset = {
   era: string;
 };
 export type ContentPack = {
+  characters?: Character[];
   /** 由调试或入口系统提供的标签，用于内容静态可达性分析。 */
   entryTags?: string[];
   id: string;
@@ -127,6 +186,7 @@ export type ContentPack = {
   tags?: string[];
 };
 export type HistoryEntry = {
+  nodeId?: string;
   eventId: string;
   choiceId: string;
   outcomeId: string;
@@ -139,6 +199,8 @@ export type HistoryEntry = {
   deviation: number;
 };
 export type LifeState = Record<Stat, number> & {
+  relationships: Record<string, number>;
+  promises: Record<string, PromiseStatus>;
   year: number;
   age: number;
   currentCountry: string;
@@ -153,16 +215,26 @@ export type LifeState = Record<Stat, number> & {
   simulationProfileVersion: string;
 };
 export type Game = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   state: LifeState;
   currentEventId: string | null;
-  phase: 'choice' | 'result' | 'ending';
+  phase: 'reading' | 'choice' | 'result' | 'ending';
+  nodeId?: string;
+  visitedScenes: string[];
+  /** 只记录已读文本的引用，不把正文或播放时钟写入存档。 */
+  transcript: {
+    eventId: string;
+    nodeId: string;
+    outcomeId?: string;
+    choiceId?: string;
+  }[];
   endingId: string | null;
   pendingEventId?: string;
   attempts: Record<string, number>;
   contentVersions: Record<string, string>;
 };
 export type Registry = {
+  characters: Character[];
   packs: ContentPack[];
   events: LifeEvent[];
   endings: Ending[];

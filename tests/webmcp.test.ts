@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { registerGameTools, type GameModelContext } from '../src/game/webmcp';
 import { newGame } from '../src/engine/runtime';
-import { registry } from '../src/content/registry';
+import { legacyRegistry as registry } from '../src/content/registry';
 it('结构化交互工具复用游戏状态，拒绝非法输入并按生命周期注销', () => {
   let game = newGame(registry);
   const tools: Parameters<GameModelContext['registerTool']>[0][] = [];

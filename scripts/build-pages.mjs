@@ -50,7 +50,14 @@ for (const match of html.matchAll(/(?:src|href)="([^"#]+)"/g)) {
   checked += 1;
 }
 assert(checked > 0, '首页没有可校验的静态资源。');
-assert(html.includes(`${prefix}assets/childhood.png`), '首幕插画路径不正确。');
+assert(
+  html.includes(`${prefix}assets/novel/backgrounds/bedroom.png`),
+  '首幕背景路径不正确。',
+);
+assert(
+  html.includes(`${prefix}assets/novel/characters/elon-child-neutral.png`),
+  '首幕人物路径不正确。',
+);
 console.log(
   `Pages 构建完成：${basePath || '/'}；${checked} 项首页资源引用通过校验。`,
 );
