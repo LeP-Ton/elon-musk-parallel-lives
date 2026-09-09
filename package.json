@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "tsc --noEmit && vinext build",
+    "build:pages": "node scripts/build-pages.mjs",
     "start": "vinext start",
     "test": "vitest run --config vitest.config.ts",
     "validate:content": "node --import tsx scripts/validate-content.ts",

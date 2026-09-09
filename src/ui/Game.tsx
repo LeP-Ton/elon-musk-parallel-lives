@@ -42,6 +42,7 @@ import {
 import { canonTimeline } from '../research/canonTimeline';
 import { registerGameTools, type GameModelContext } from '../game/webmcp';
 import { Inspector } from './Inspector';
+import { assetUrl } from '../game/assets';
 
 type Panel =
   | 'profile'
@@ -314,10 +315,10 @@ export default function Game() {
             <img
               key={event.scene.backgroundKey}
               className="scene-image"
-              src={
+              src={assetUrl(
                 registry.assets.find((a) => a.id === event.scene.backgroundKey)
-                  ?.path
-              }
+                  ?.path,
+              )}
               alt={`${event.scene.location}，电影化年代插画，属于艺术重现`}
             />
             <div className="scene-shade" />

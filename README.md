@@ -21,6 +21,20 @@ pnpm build
 
 生产构建为纯静态站点，导出目录为 `dist/client`，与 `.openai/hosting.json` 保持一致。无需服务器数据库或 API Key。
 
+## GitHub 与 GitHub Pages
+
+仓库名使用 `elon-musk-parallel-lives`。GitHub Pages 是独立的公开试玩渠道，原有 Sites 私有站点不会因此改变权限或更新版本。
+
+```bash
+npm run build:pages
+```
+
+默认以 `/elon-musk-parallel-lives` 为部署路径，输出 `dist/github-pages`。如需自定义路径，可设置 `GITHUB_PAGES_BASE_PATH`；设置为空字符串时适用于域名根目录。构建脚本会检查首页的脚本、样式、图标与插画引用，资源缺失时停止发布。
+
+GitHub 仓库的 `Settings → Pages → Build and deployment → Source` 应选择 `GitHub Actions`。之后推送到 `main`，或手动运行「发布 GitHub Pages」工作流，会依次运行回归测试、内容校验、静态构建与发布。发布权限只授予部署任务，无需在仓库配置个人访问令牌。
+
+源码提交、Sites 版本与 Pages 部署分别管理：GitHub 推送不会更新 Sites。Sites 与 Pages 属于不同域名，本地存档不会自动共享，可在游戏内导出存档文件后到另一站点导入。
+
 ## 核心结构
 
 - `src/engine`：条件、调度、概率、人物冲突与状态演进；不引用具体事件 ID。

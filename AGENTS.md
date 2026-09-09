@@ -13,6 +13,7 @@
 ## 运行与验证
 - `pnpm dev`：本地游戏。
 - `pnpm build`：类型检查和生产构建。
+- `npm run build:pages`：GitHub Pages 专用静态构建与资源路径校验，输出 `dist/github-pages`。
 - `pnpm test`：引擎、内容、存档、路线验收。
 - `pnpm validate:content`：内容完整性校验。
 
@@ -27,3 +28,9 @@
 ## 当前版本基线
 - 会话-1 从空目录开始，初始不存在 Git 分支；现已初始化独立 `main` 分支。
 - 需求原文保存在 `plan/requirements-original.md`，不得改写；执行计划见 `plan/implementation.md`。
+
+## 多平台发布
+- 保留 Sites 配置与既有部署；GitHub Pages 是独立发布渠道，不自动更新 Sites。
+- 根路径构建用于 Sites；Pages 构建通过 `NEXT_PUBLIC_BASE_PATH` 适配项目子目录，内容包资源路径不随平台改写。
+- GitHub 的 `main` 推送触发测试、内容校验、静态构建与 Pages 发布；只上传静态产物，不上传源码目录作为网站。
+- 存档按浏览器域名隔离；跨 Sites 与 Pages 搬迁进度需导出再导入。

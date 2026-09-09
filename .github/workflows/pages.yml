@@ -1,0 +1,61 @@
+name: 发布 GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 测试与静态构建
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v6
+      - name: 准备 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: 安装锁定依赖
+        run: npm ci
+      - name: 运行回归测试
+        run: npm test
+      - name: 校验内容包
+        run: npm run validate:content
+      - name: 读取 Pages 路径
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: 构建并校验 Pages 资源
+        run: npm run build:pages
+        env:
+          GITHUB_PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+      - name: 上传静态站点
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/github-pages
+
+  deploy:
+    name: 发布网站
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
