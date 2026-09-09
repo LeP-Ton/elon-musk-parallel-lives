@@ -4,8 +4,10 @@
 - `../plan/requirements-original.md`：用户完整需求的原文备份；确认产品范围与验收要求时读取。
 - `../plan/implementation.md`：第一阶段实施计划、当前进展与后续边界。
 - `../plan/art-assets.md`：三张原创插画的资产路径、最终提示词与生成方式。
+- `../plan/autoplay.md`：会话-9 自动播放新增需求原文、实施清单、复现与多结局边界。
 
 ## 当前变更文档
+- `workflow/20260909113625-autoplay.md`：会话-9 规则内自动演化、观众控制、计时器中断、1,000 个种子回归和完整 diff；排查自动播放或回到本轮版本时读取。
 - `workflow/20260909110246-github-pages.md`：会话-6 GitHub 迁入准备、Pages 子目录资源适配、自动发布工作流及完整 diff；查看双托管发布与验证时读取。
 - `workflow/20260909092339-vertical-slice.md`：会话-1 游戏实现、全量业务代码 diff、测试与限制；回顾玩法、引擎和修复时读取。
 - `workflow/20260909092339-scaffold.md`：会话-1 引入的通用 UI 组件及脚手架代码完整 diff；检查基础组件时读取。

@@ -1,5 +1,11 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -13,6 +19,9 @@ import {
   Bug,
   Check,
   Download,
+  Play,
+  Pause,
+  Shuffle,
 } from 'lucide-react';
 import {
   Dialog,
@@ -22,6 +31,11 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { Button } from '@/components/ui/button';
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from '@/components/ui/native-select';
 import { registry as initialRegistry } from '../content/registry';
 import type { Game as GameState, Registry, Stat } from '../game/types';
 import {
@@ -43,6 +57,8 @@ import { canonTimeline } from '../research/canonTimeline';
 import { registerGameTools, type GameModelContext } from '../game/webmcp';
 import { Inspector } from './Inspector';
 import { assetUrl } from '../game/assets';
+import { freshWorldSeed, type PlaybackSpeed } from '../engine/autoplay';
+import { useAutoplay } from './useAutoplay';
 
 type Panel =
   | 'profile'
@@ -76,7 +92,7 @@ const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US');
 export default function Game() {
   const [registry, setRegistry] = useState<Registry>(initialRegistry);
   const [game, setGame] = useState(() => newGame(initialRegistry));
-  const [panel, setPanel] = useState<Panel>(null);
+  const [panel, setPanelState] = useState<Panel>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [seed, setSeed] = useState('MUSK-88421');
@@ -90,11 +106,26 @@ export default function Game() {
   const [replaceSlot, setReplaceSlot] = useState<number | null>(null);
   const [fontSize, setFontSize] = useState(17);
   const [dev, setDev] = useState(false);
+  const [ready, setReady] = useState(false);
+  const pristineRef = useRef(true);
   const gameRef = useRef(game);
   const registryRef = useRef(registry);
   const fileRef = useRef<HTMLInputElement>(null);
   const commitRef = useRef<(g: GameState) => void>(() => {});
-  function commit(next: GameState) {
+  const autoplay = useAutoplay({
+    game,
+    registry,
+    blocked: !ready || Boolean(panel || resume || error),
+    onStep: (next) => {
+      commit(next, true);
+      scrollToStory();
+    },
+    onError: (cause) =>
+      setError(cause instanceof Error ? cause.message : String(cause)),
+  });
+  function commit(next: GameState, automatic = false): void {
+    if (!automatic) autoplay.pause();
+    pristineRef.current = false;
     gameRef.current = next;
     setGame(next);
     setResume(null);
@@ -103,11 +134,15 @@ export default function Game() {
       saveSlot(localStorage, 0, next);
       setNotice('已自动保存');
     } catch (e) {
+      autoplay.pause();
       setError(e instanceof Error ? e.message : String(e));
     }
   }
-  commitRef.current = commit;
+  useLayoutEffect(() => {
+    commitRef.current = commit;
+  });
   function register(next: Registry) {
+    autoplay.pause();
     registryRef.current = next;
     setRegistry(next);
   }
@@ -126,6 +161,7 @@ export default function Game() {
     } catch (e) {
       setError(String(e));
     }
+    setReady(true);
     const context = (document as Document & { modelContext?: GameModelContext })
       .modelContext;
     return registerGameTools(
@@ -173,43 +209,77 @@ export default function Game() {
       : sceneTruth(event, game.state);
   const displayYear =
     game.phase === 'result' ? (last?.year ?? game.state.year) : game.state.year;
-  function turn(action: () => GameState) {
+  function setPanel(next: Panel) {
+    autoplay.pause();
+    setPanelState(next);
+  }
+  function scrollToStory() {
+    requestAnimationFrame(() =>
+      document
+        .getElementById('story-title')
+        ?.scrollIntoView({ behavior: 'instant', block: 'start' }),
+    );
+  }
+  function startAutoplay() {
+    if (!ready || resume || error || game.phase === 'ending') return;
     safely(() => {
-      commit(action());
-      requestAnimationFrame(() =>
-        document
-          .getElementById('story-title')
-          ?.scrollIntoView({ behavior: 'instant', block: 'start' }),
-      );
+      // 初次观看不用每个人都相同的演示种子；暂停、接管和读档则保留当前种子。
+      if (pristineRef.current) {
+        const nextSeed = freshWorldSeed();
+        commit(newGame(registry, nextSeed));
+        setSeed(nextSeed);
+      }
+      autoplay.start();
     });
   }
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (
-        panel ||
-        e.repeat ||
-        e.metaKey ||
-        e.ctrlKey ||
-        e.altKey ||
-        (e.target instanceof HTMLElement &&
-          e.target.closest('input,textarea,select,button,a'))
-      )
-        return;
-      if (game.phase === 'choice' && /^[1-4]$/.test(e.key)) {
-        const c = choices[Number(e.key) - 1];
-        if (c) {
-          e.preventDefault();
-          turn(() => choose(gameRef.current, registryRef.current, c.id));
-        }
-      }
-      if (game.phase === 'result' && e.key === 'Enter') {
+  function prepareRandomLife() {
+    safely(() => {
+      setSeed(freshWorldSeed());
+      setPanel('new');
+    });
+  }
+  function turn(action: () => GameState) {
+    safely(() => {
+      autoplay.pause();
+      commit(action());
+      scrollToStory();
+    });
+  }
+  // 快捷键读取最新播放态，倒计时更新无需反复注销、注册全局监听器。
+  const onKey = useEffectEvent((e: KeyboardEvent) => {
+    if (
+      panel ||
+      e.repeat ||
+      e.metaKey ||
+      e.ctrlKey ||
+      e.altKey ||
+      (e.target instanceof HTMLElement &&
+        e.target.closest('input,textarea,select,button,a'))
+    )
+      return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (autoplay.playing) autoplay.pause();
+      else startAutoplay();
+      return;
+    }
+    if (game.phase === 'choice' && /^[1-4]$/.test(e.key)) {
+      const c = choices[Number(e.key) - 1];
+      if (c) {
         e.preventDefault();
-        turn(() => advance(gameRef.current, registryRef.current));
+        turn(() => choose(gameRef.current, registryRef.current, c.id));
       }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [game, panel, choices]);
+    }
+    if (game.phase === 'result' && e.key === 'Enter') {
+      e.preventDefault();
+      turn(() => advance(gameRef.current, registryRef.current));
+    }
+  });
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => onKey(e);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
   function manualSave(index: number) {
     safely(() => {
       saveSlot(localStorage, index, game);
@@ -311,6 +381,84 @@ export default function Game() {
               </button>
             </div>
           )}
+          <section className="autoplay-toolbar" aria-label="自动播放控制">
+            <div className="autoplay-controls">
+              <div className="autoplay-heading">
+                <span
+                  className={
+                    autoplay.playing ? 'live-dot is-playing' : 'live-dot'
+                  }
+                  aria-hidden
+                />
+                <strong>观众模式</strong>
+                <output id="autoplay-status">
+                  {game.phase === 'ending'
+                    ? '本轮已结束'
+                    : autoplay.playing
+                      ? '正在演化'
+                      : '等待播放'}
+                </output>
+              </div>
+              <div className="autoplay-actions">
+                <Button
+                  className="autoplay-toggle"
+                  onClick={() =>
+                    autoplay.playing ? autoplay.pause() : startAutoplay()
+                  }
+                  disabled={
+                    !ready ||
+                    Boolean(resume || error) ||
+                    game.phase === 'ending'
+                  }
+                  aria-pressed={autoplay.playing}
+                >
+                  {autoplay.playing ? <Pause /> : <Play />}
+                  {autoplay.playing ? '暂停' : '自动播放'}
+                </Button>
+                <label className="playback-speed" htmlFor="playback-speed">
+                  <span className="sr-only">播放速度</span>
+                  <NativeSelect
+                    id="playback-speed"
+                    value={autoplay.speed}
+                    onChange={(e) =>
+                      autoplay.changeSpeed(
+                        Number(e.target.value) as PlaybackSpeed,
+                      )
+                    }
+                  >
+                    <NativeSelectOption value={1}>1× 阅读</NativeSelectOption>
+                    <NativeSelectOption value={2}>2× 快进</NativeSelectOption>
+                    <NativeSelectOption value={4}>4× 速览</NativeSelectOption>
+                  </NativeSelect>
+                </label>
+                <Button
+                  variant="outline"
+                  onClick={prepareRandomLife}
+                  disabled={!ready}
+                >
+                  <Shuffle />
+                  随机开播
+                </Button>
+              </div>
+            </div>
+            <p className="autoplay-caption">
+              {resume ? (
+                '先继续上次故事，或用「随机开播」开启另一条人生。'
+              ) : game.phase === 'ending' ? (
+                '故事在此停留。随机开播可观看新人生；不同种子也可能走向相同结局。'
+              ) : autoplay.playing ? (
+                <>
+                  <span role="timer" aria-live="off">
+                    约 {Math.ceil(autoplay.remaining / 1000)} 秒后
+                    {game.phase === 'choice' ? '作出选择' : '翻页'}。
+                  </span>
+                  点击任一选项可立即接管。
+                </>
+              ) : (
+                '让人物倾向、现实条件与机遇推动故事。空格键播放 / 暂停。'
+              )}
+            </p>
+          </section>
           <div className="scene-frame">
             <img
               key={event.scene.backgroundKey}
@@ -374,6 +522,12 @@ export default function Game() {
               ))}
             </div>
             {game.phase === 'result' && (
+              <p className="result-choice">
+                这一刻的选择：
+                {event.choices.find((c) => c.id === last?.choiceId)?.text}
+              </p>
+            )}
+            {game.phase === 'result' && (
               <div className="effect-whispers">
                 {outcome?.effects
                   ?.filter((e) =>
@@ -409,7 +563,7 @@ export default function Game() {
                 choices.map((c, i) => (
                   <button
                     key={c.id}
-                    className="choice"
+                    className={`choice ${autoplay.plannedChoice?.id === c.id ? 'auto-planned' : ''}`}
                     onClick={() =>
                       turn(() =>
                         choose(gameRef.current, registryRef.current, c.id),
@@ -420,6 +574,11 @@ export default function Game() {
                     <span>
                       <strong>{c.text}</strong>
                       <small>{c.hint}</small>
+                      {autoplay.plannedChoice?.id === c.id && (
+                        <em className="auto-choice-note">
+                          人物即将作出的选择 · 可点击接管
+                        </em>
+                      )}
                     </span>
                     <ArrowRight size={18} />
                   </button>
@@ -450,6 +609,13 @@ export default function Game() {
                     </span>
                   </div>
                   <div className="ending-actions">
+                    <button
+                      className="secondary-action"
+                      onClick={prepareRandomLife}
+                    >
+                      <Shuffle size={16} />
+                      再看一段随机人生
+                    </button>
                     <button
                       className="continue"
                       onClick={() => setPanel('timeline')}
@@ -504,7 +670,7 @@ export default function Game() {
                 开发检查器
               </button>
             )}
-            <span>数字键选择 · Enter 继续</span>
+            <span>数字键选择 · Enter 继续 · 空格播放 / 暂停</span>
           </div>
         </section>
         <aside className="right-margin" aria-hidden>
@@ -734,6 +900,7 @@ export default function Game() {
             <>
               <p className="panel-intro">
                 存档保存在当前浏览器。清理浏览器数据会移除存档，可导出文件留存。
+                读取后默认暂停，可从当前页重新开启自动播放。
               </p>
               {slots.map((slot, i) => (
                 <div className="save-slot" key={i}>
@@ -844,9 +1011,7 @@ export default function Game() {
               <button
                 className="text-action"
                 onClick={() => {
-                  const values = new Uint32Array(1);
-                  crypto.getRandomValues(values);
-                  setSeed(`MUSK-${values[0].toString(36).toUpperCase()}`);
+                  safely(() => setSeed(freshWorldSeed()));
                 }}
               >
                 生成新的种子 ↻
@@ -854,17 +1019,37 @@ export default function Game() {
               <p className="muted">
                 开启新人生会替换自动存档，手动存档保留。当前进度可先在存档面板保存。
               </p>
-              <button
-                className="continue"
-                disabled={!seed.trim()}
-                onClick={() => {
-                  commit(newGame(registry, seed));
-                  setPanel(null);
-                  window.scrollTo({ top: 0 });
-                }}
-              >
-                从第一枚光标开始 <ArrowRight size={17} />
-              </button>
+              <p className="muted">
+                自动播放会自行选择并翻页，同一策略与内容版本下，同一种子可复现同一轮自动人生。暂停、倍速不会重抽结果；结局可能重复。
+              </p>
+              <div className="ending-actions">
+                <Button
+                  className="watch-start"
+                  disabled={!seed.trim() || !ready}
+                  onClick={() =>
+                    safely(() => {
+                      commit(newGame(registry, seed));
+                      setPanel(null);
+                      autoplay.start();
+                      scrollToStory();
+                    })
+                  }
+                >
+                  <Play />
+                  按此种子自动播放
+                </Button>
+                <button
+                  className="continue"
+                  disabled={!seed.trim()}
+                  onClick={() => {
+                    commit(newGame(registry, seed));
+                    setPanel(null);
+                    window.scrollTo({ top: 0 });
+                  }}
+                >
+                  从第一枚光标开始 <ArrowRight size={17} />
+                </button>
+              </div>
             </>
           )}
           {panel === 'debug' && dev && (

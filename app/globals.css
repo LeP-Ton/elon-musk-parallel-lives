@@ -69,6 +69,84 @@
 .resume-banner button:first-of-type {
   margin-left: auto;
 }
+.autoplay-toolbar {
+  position: sticky;
+  top: 8px;
+  z-index: 20;
+  margin-bottom: 18px;
+  padding: 14px 18px;
+  border: 1px solid #505942;
+  border-radius: 4px;
+  background: #1b231df5;
+  box-shadow: 0 5px 20px #080d0840;
+}
+.autoplay-controls,
+.autoplay-heading,
+.autoplay-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.autoplay-controls {
+  justify-content: space-between;
+}
+.autoplay-heading {
+  font-size: 0.875rem;
+}
+.autoplay-heading strong {
+  font-weight: 500;
+  color: var(--gold);
+}
+.autoplay-heading > output {
+  color: #b4c0a8;
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6d795f;
+}
+.live-dot.is-playing {
+  background: #c3ad7d;
+  box-shadow: 0 0 8px #c3ad7d80;
+}
+.autoplay-actions [data-slot='button'],
+.autoplay-actions select {
+  min-height: 36px;
+  font-size: 0.875rem;
+  border-radius: 3px;
+}
+.autoplay-caption {
+  margin: 10px 0 0;
+  color: #aeba9f;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.auto-planned {
+  border-color: var(--gold);
+  background: #39412c66;
+}
+.auto-choice-note {
+  display: block;
+  color: #dbca9c;
+  font-size: 0.875rem;
+  font-style: normal;
+  margin-top: 9px;
+}
+.result-choice {
+  border-left: 2px solid var(--gold);
+  padding-left: 14px;
+  margin-top: 20px;
+  color: #c9bc92;
+  font-size: 0.875rem;
+  line-height: 1.8;
+}
+.watch-start[data-slot='button'] {
+  height: auto;
+  padding: 14px 20px;
+  font-size: 0.9375rem;
+}
 .effect-whispers {
   display: flex;
   gap: 18px;
@@ -503,10 +581,23 @@
   margin-top: 20px;
 }
 #story-title {
-  scroll-margin-top: 24px;
+  scroll-margin-top: 165px;
   outline: none;
 }
 @media (max-width: 600px) {
+  .autoplay-toolbar {
+    top: 0;
+    padding: 12px;
+  }
+  .autoplay-controls {
+    gap: 10px;
+  }
+  .autoplay-actions {
+    gap: 8px;
+  }
+  #story-title {
+    scroll-margin-top: 225px;
+  }
   .game-dialog[data-slot='dialog-content'] {
     padding: 28px 22px;
   }

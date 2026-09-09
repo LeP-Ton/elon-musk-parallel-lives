@@ -3,6 +3,7 @@ export type RandomStream =
   | 'outcome'
   | 'randomEvent'
   | 'company'
+  | 'autoplay'
   | 'cosmetic';
 /** 无共享游标：增删美术抽样不会消耗剧情随机数。 */
 export function random(
